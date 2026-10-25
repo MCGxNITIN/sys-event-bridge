@@ -39,7 +39,9 @@ async def request_api(params: dict) -> dict:
         except Exception as e:
             return {"success": False, "message": f"Connection error: {str(e)}"}
 
-# ================= INTERACTIVE BUTTONS =================
+# ================= INTERACTIVE VIEWS =================
+
+# Key Buttons: Reset HWID, Ban, Unban, Delete
 class KeyActionView(discord.ui.View):
     def __init__(self, key: str):
         super().__init__(timeout=None)
@@ -72,6 +74,25 @@ class KeyActionView(discord.ui.View):
         res = await request_api({"action": "delete_key", "key": self.key})
         status_text = res.get("message", "Key has been deleted.") if res.get("success") else res.get("message", "Failed to delete key.")
         await interaction.followup.send(f"**[{self.key}]** {status_text}", ephemeral=True)
+
+
+# UID Whitelist Quick Delete Button View
+class UIDActionView(discord.ui.View):
+    def __init__(self, uid: str):
+        super().__init__(timeout=None)
+        self.uid = uid
+
+    @discord.ui.button(label="🗑️ Remove / Delete UID", style=discord.ButtonStyle.danger, custom_id="btn_delete_uid")
+    async def delete_uid_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        res = await request_api({"action": "remove_uid", "uid": self.uid})
+        if res.get("success"):
+            await interaction.followup.send(f"✅ Player UID `{self.uid}` has been successfully removed from whitelist.", ephemeral=True)
+            self.delete_uid_btn.disabled = True
+            await interaction.edit_original_response(view=self)
+        else:
+            err = res.get("message", "Failed to remove UID.")
+            await interaction.followup.send(f"❌ Error removing UID `{self.uid}`: {err}", ephemeral=True)
 
 # ================= BOT INITIALIZATION =================
 intents = discord.Intents.default()
@@ -137,9 +158,7 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
     }
     
     data = await request_api(params)
-    print("API RESPONSE DEBUG:", data)
 
-    # Key Extraction Logic (Handles strings, arrays, and nested structures)
     extracted_key = None
     if isinstance(data, dict):
         if data.get("key"):
@@ -156,7 +175,6 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
             elif isinstance(inner, list) and inner:
                 extracted_key = inner[0]
 
-    # Success Embed Matching Image 2
     if extracted_key:
         embed = discord.Embed(
             title="🔑 Package License Key Generated",
@@ -209,15 +227,13 @@ async def whitelist(interaction: discord.Interaction, uid: str, region: str = "I
     embed.add_field(name="Duration", value=f"{days} Days" if days > 0 else "Lifetime", inline=True)
     embed.add_field(name="Result", value=data.get("message", "Processed successfully"), inline=False)
 
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    view = UIDActionView(uid=uid.strip()) if data.get("success") else None
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-# 3. GENERATE LIB BYPASS KEY
-@bot.tree.command(name="genlib", description="Generate a Lib Bypass key")
-@app_commands.describe(
-    custom_key="Custom username/key label",
-    days="Duration in days (Default: 30, 0 for Lifetime)"
-)
-async def genlib(interaction: discord.Interaction, custom_key: str, days: int = 30):
+# 3. DIRECT REMOVE/DELETE UID COMMAND
+@bot.tree.command(name="removeuid", description="Remove/Delete a Free Fire UID from whitelist")
+@app_commands.describe(uid="Player numeric Free Fire UID to remove")
+async def removeuid(interaction: discord.Interaction, uid: str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Permission denied.", ephemeral=True)
         return
@@ -225,8 +241,43 @@ async def genlib(interaction: discord.Interaction, custom_key: str, days: int = 
     await interaction.response.defer(ephemeral=True)
 
     params = {
+        "action": "remove_uid",
+        "uid": uid.strip()
+    }
+    data = await request_api(params)
+
+    embed = discord.Embed(
+        title="UID Removal Status",
+        color=0x2ECC71 if data.get("success") else 0xE74C3C
+    )
+    embed.add_field(name="UID", value=uid.strip(), inline=True)
+    embed.add_field(name="Result", value=data.get("message", "Action processed"), inline=False)
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+# 4. GENERATE LIB BYPASS KEY (Supports V1 & V2)
+@bot.tree.command(name="genlib", description="Generate a Lib Bypass key")
+@app_commands.describe(
+    custom_key="Custom username/key label",
+    version="Engine Version (v1 or v2)",
+    days="Duration in days (Default: 30, 0 for Lifetime)"
+)
+@app_commands.choices(version=[
+    app_commands.Choice(name="Version 1 (V1)", value="v1"),
+    app_commands.Choice(name="Version 2 (V2)", value="v2")
+])
+async def genlib(interaction: discord.Interaction, custom_key: str, version: app_commands.Choice[str] = None, days: int = 30):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Permission denied.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    selected_version = version.value if version else "v1"
+
+    params = {
         "action": "generate_lib_key",
-        "lib_version": "v1",
+        "lib_version": selected_version,
         "days": days,
         "custom_key": custom_key.strip()
     }
@@ -236,7 +287,7 @@ async def genlib(interaction: discord.Interaction, custom_key: str, days: int = 
         title="Lib Bypass Key Generated",
         color=0x9B59B6 if data.get("success") else 0xE74C3C
     )
-    embed.add_field(name="Engine", value="V1", inline=True)
+    embed.add_field(name="Engine", value=selected_version.upper(), inline=True)
     embed.add_field(name="Target User", value=custom_key, inline=True)
     embed.add_field(name="Duration", value=f"{days} Days" if days > 0 else "Lifetime", inline=True)
 
@@ -249,7 +300,7 @@ async def genlib(interaction: discord.Interaction, custom_key: str, days: int = 
         embed.add_field(name="Error", value=data.get("message", "Failed to generate key"), inline=False)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-# 4. RESET HWID DIRECT COMMAND
+# 5. RESET HWID DIRECT COMMAND
 @bot.tree.command(name="resethwid", description="Reset HWID lock for a key")
 @app_commands.describe(key="License key to reset")
 async def resethwid(interaction: discord.Interaction, key: str):
