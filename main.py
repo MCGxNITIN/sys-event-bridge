@@ -12,13 +12,13 @@ API_KEY = os.getenv("API_KEY", "TX999_API_5a1fc087033d8a5685305a288e22ffb2")
 APP_ID = os.getenv("APP_ID", "9f087d585fbd666572fc24b7")
 BASE_URL = "https://prtvshow.online/api_admin.php"
 
-# Security & ID Whitelists
+# Server & User Permissions
 ALLOWED_GUILD_ID = 1525181999147388958
 PRIMARY_OWNER_ID = 1525179499602509977
 AUTHORIZED_USERS = {1525179499602509977, 1209489335590723654}
 
-# Designated Channels
-KEY_GEN_CHANNEL_ID = 1546969770924966029
+# Designated Category & Logging Channel
+ALLOWED_CATEGORY_ID = 1525181999646507118
 AUDIT_LOG_CHANNEL_ID = 1547688035796254941
 
 # Packages mapping (Panel Package IDs)
@@ -73,13 +73,13 @@ async def send_audit_log(client: commands.Bot, title: str, user: discord.User, f
     except Exception as e:
         print(f"[Audit Log Error]: {e}")
 
-# ================= PERMISSION VERIFIER =================
-async def verify_access(interaction: discord.Interaction, enforce_channel: bool = True) -> bool:
+# ================= PERMISSION & CATEGORY VERIFIER =================
+async def verify_access(interaction: discord.Interaction, check_category: bool = True) -> bool:
     # 1. Guild Check
     if interaction.guild_id != ALLOWED_GUILD_ID:
         embed = discord.Embed(
             title="⛔ Access Denied | Server Restricted",
-            description="This bot is locked to a private server.\nPlease contact Super Admin **PERSISTX** for assistance.",
+            description="This bot is locked to a private server.\n\n**Please contact Super Admin PERSISTX for access.**",
             color=0xED4245
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -92,26 +92,27 @@ async def verify_access(interaction: discord.Interaction, enforce_channel: bool 
             description="You do not have authorization to use this bot.\n\n**Please contact Super Admin PERSISTX for access.**",
             color=0xED4245
         )
-        embed.set_footer(text=f"Unauthorized User ID: {interaction.user.id}")
+        embed.set_footer(text=f"User ID: {interaction.user.id}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return False
 
-    # 3. Channel Check
-    if enforce_channel and interaction.channel_id != KEY_GEN_CHANNEL_ID:
-        gen_ch = f"<#{KEY_GEN_CHANNEL_ID}>"
-        embed = discord.Embed(
-            title="⚠️ Channel Restriction",
-            description=f"License generation commands can only be executed in {gen_ch}.",
-            color=0xFEE75C
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return False
+    # 3. Category Check
+    if check_category:
+        channel = interaction.channel
+        category_id = getattr(channel, "category_id", None)
+        if category_id != ALLOWED_CATEGORY_ID:
+            embed = discord.Embed(
+                title="⚠️ Category Restriction",
+                description="Yeh command sirf designated category ke channels me allow hai.",
+                color=0xFEE75C
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return False
 
     return True
 
-# ================= INTERACTIVE VIEWS =================
+# ================= INTERACTIVE BUTTON VIEWS =================
 
-# Key Buttons View
 class KeyActionView(discord.ui.View):
     def __init__(self, key: str):
         super().__init__(timeout=None)
@@ -188,7 +189,7 @@ class KeyActionView(discord.ui.View):
         )
         await interaction.followup.send(f"**[{self.key}]** {status_text}", ephemeral=True)
 
-# UID Quick Delete View
+
 class UIDActionView(discord.ui.View):
     def __init__(self, uid: str):
         super().__init__(timeout=None)
@@ -268,7 +269,7 @@ async def manual_sync(ctx):
     app_commands.Choice(name=name, value=pkg_id) for name, pkg_id in PACKAGES.items()
 ])
 async def genkey(interaction: discord.Interaction, package: app_commands.Choice[str], days: int = 1, note: str = ""):
-    if not await verify_access(interaction, enforce_channel=True):
+    if not await verify_access(interaction, check_category=True):
         return
 
     await interaction.response.defer(ephemeral=True)
@@ -310,7 +311,6 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
         view = KeyActionView(key=str(extracted_key).strip())
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
-        # Send Audit Log
         await send_audit_log(
             interaction.client,
             title="Key Generated",
@@ -336,7 +336,7 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
     days="Whitelist duration (Default: 30, 0 for Lifetime)"
 )
 async def whitelist(interaction: discord.Interaction, uid: str, region: str = "IND", days: int = 30):
-    if not await verify_access(interaction, enforce_channel=True):
+    if not await verify_access(interaction, check_category=True):
         return
 
     await interaction.response.defer(ephemeral=True)
@@ -361,7 +361,6 @@ async def whitelist(interaction: discord.Interaction, uid: str, region: str = "I
     view = UIDActionView(uid=uid.strip()) if data.get("success") else None
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-    # Send Audit Log
     await send_audit_log(
         interaction.client,
         title="UID Whitelisted",
@@ -379,7 +378,7 @@ async def whitelist(interaction: discord.Interaction, uid: str, region: str = "I
 @bot.tree.command(name="removeuid", description="Remove/Delete a Free Fire UID from whitelist")
 @app_commands.describe(uid="Player numeric Free Fire UID to remove")
 async def removeuid(interaction: discord.Interaction, uid: str):
-    if not await verify_access(interaction, enforce_channel=True):
+    if not await verify_access(interaction, check_category=True):
         return
 
     await interaction.response.defer(ephemeral=True)
@@ -393,7 +392,6 @@ async def removeuid(interaction: discord.Interaction, uid: str):
 
     await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # Send Audit Log
     await send_audit_log(
         interaction.client,
         title="UID Removed Manually",
@@ -414,7 +412,7 @@ async def removeuid(interaction: discord.Interaction, uid: str):
     app_commands.Choice(name="Version 2 (V2)", value="v2")
 ])
 async def genlib(interaction: discord.Interaction, custom_key: str, version: app_commands.Choice[str] = None, days: int = 30):
-    if not await verify_access(interaction, enforce_channel=True):
+    if not await verify_access(interaction, check_category=True):
         return
 
     await interaction.response.defer(ephemeral=True)
@@ -440,7 +438,6 @@ async def genlib(interaction: discord.Interaction, custom_key: str, version: app
         view = KeyActionView(key=str(key).strip())
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
-        # Send Audit Log
         await send_audit_log(
             interaction.client,
             title="Lib Bypass Key Generated",
@@ -461,7 +458,7 @@ async def genlib(interaction: discord.Interaction, custom_key: str, version: app
 @bot.tree.command(name="resethwid", description="Reset HWID lock for a key")
 @app_commands.describe(key="License key to reset")
 async def resethwid(interaction: discord.Interaction, key: str):
-    if not await verify_access(interaction, enforce_channel=False):
+    if not await verify_access(interaction, check_category=False):
         return
 
     await interaction.response.defer(ephemeral=True)
@@ -475,7 +472,6 @@ async def resethwid(interaction: discord.Interaction, key: str):
 
     await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # Send Audit Log
     await send_audit_log(
         interaction.client,
         title="Direct HWID Reset",
