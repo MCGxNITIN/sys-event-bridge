@@ -75,7 +75,6 @@ async def send_audit_log(client: commands.Bot, title: str, user: discord.User, f
 
 # ================= PERMISSION & CATEGORY VERIFIER =================
 async def verify_access(interaction: discord.Interaction, check_category: bool = True) -> bool:
-    # 1. Guild Check
     if interaction.guild_id != ALLOWED_GUILD_ID:
         embed = discord.Embed(
             title="⛔ Access Denied | Server Restricted",
@@ -85,7 +84,6 @@ async def verify_access(interaction: discord.Interaction, check_category: bool =
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return False
 
-    # 2. User Whitelist Check
     if interaction.user.id not in AUTHORIZED_USERS:
         embed = discord.Embed(
             title="⛔ Access Denied | Unauthorized Access",
@@ -96,7 +94,6 @@ async def verify_access(interaction: discord.Interaction, check_category: bool =
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return False
 
-    # 3. Category Check
     if check_category:
         channel = interaction.channel
         category_id = getattr(channel, "category_id", None)
@@ -246,7 +243,6 @@ bot = ResellerBot()
 async def on_ready():
     print(f">>> Logged in as: {bot.user} (ID: {bot.user.id})")
 
-# Manual Sync Command (Restricted to Primary Owner only)
 @bot.command(name="sync")
 async def manual_sync(ctx):
     if ctx.author.id != PRIMARY_OWNER_ID or ctx.guild.id != ALLOWED_GUILD_ID:
@@ -258,21 +254,23 @@ async def manual_sync(ctx):
 
 # ================= SLASH COMMANDS =================
 
-# 1. GENERATE PACKAGE KEY
-@bot.tree.command(name="genkey", description="Generate a package license key")
+# 1. GENERATE PACKAGE KEY (Publicly visible in ticket)
+@bot.tree.command(name="genkey", description="Generate a package license key in ticket")
 @app_commands.describe(
     package="Select the software package",
     days="Duration in days (Default: 1, 0 for Lifetime)",
+    customer="Customer to mention in ticket (Optional)",
     note="Customer note (Optional)"
 )
 @app_commands.choices(package=[
     app_commands.Choice(name=name, value=pkg_id) for name, pkg_id in PACKAGES.items()
 ])
-async def genkey(interaction: discord.Interaction, package: app_commands.Choice[str], days: int = 1, note: str = ""):
+async def genkey(interaction: discord.Interaction, package: app_commands.Choice[str], days: int = 1, customer: discord.Member = None, note: str = ""):
     if not await verify_access(interaction, check_category=True):
         return
 
-    await interaction.response.defer(ephemeral=True)
+    # Defer publicly taaki ticket ke dusre log bhi response dekh sakein
+    await interaction.response.defer(ephemeral=False)
 
     params = {
         "action": "generate_key",
@@ -309,7 +307,10 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
         embed.add_field(name="Keys", value=f"```{extracted_key}```", inline=False)
         
         view = KeyActionView(key=str(extracted_key).strip())
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        content_text = f"Hey {customer.mention}, your license key is ready!" if customer else None
+        
+        # Public reply (ephemeral=False) taaki samne wale ko bhi dikhe
+        await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=False)
         
         await send_audit_log(
             interaction.client,
@@ -319,6 +320,7 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
                 "Package": package.name,
                 "Duration": f"{days} Days" if days > 0 else "Lifetime",
                 "Key": f"`{extracted_key}`",
+                "Customer": customer.mention if customer else "None",
                 "Note": note if note else "None"
             },
             color=0x2ECC71
@@ -333,13 +335,14 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
 @app_commands.describe(
     uid="Player numeric Free Fire UID",
     region="Server region (Default: IND)",
-    days="Whitelist duration (Default: 30, 0 for Lifetime)"
+    days="Whitelist duration (Default: 30, 0 for Lifetime)",
+    customer="Customer to mention in ticket (Optional)"
 )
-async def whitelist(interaction: discord.Interaction, uid: str, region: str = "IND", days: int = 30):
+async def whitelist(interaction: discord.Interaction, uid: str, region: str = "IND", days: int = 30, customer: discord.Member = None):
     if not await verify_access(interaction, check_category=True):
         return
 
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
 
     params = {
         "action": "whitelist_uid",
@@ -359,7 +362,8 @@ async def whitelist(interaction: discord.Interaction, uid: str, region: str = "I
     embed.add_field(name="Result", value=data.get("message", "Processed successfully"), inline=False)
 
     view = UIDActionView(uid=uid.strip()) if data.get("success") else None
-    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    content_text = f"Hey {customer.mention}, your UID has been whitelisted!" if customer else None
+    await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=False)
 
     await send_audit_log(
         interaction.client,
@@ -405,17 +409,18 @@ async def removeuid(interaction: discord.Interaction, uid: str):
 @app_commands.describe(
     custom_key="Custom username/key label",
     version="Engine Version (v1 or v2)",
-    days="Duration in days (Default: 30, 0 for Lifetime)"
+    days="Duration in days (Default: 30, 0 for Lifetime)",
+    customer="Customer to mention in ticket (Optional)"
 )
 @app_commands.choices(version=[
     app_commands.Choice(name="Version 1 (V1)", value="v1"),
     app_commands.Choice(name="Version 2 (V2)", value="v2")
 ])
-async def genlib(interaction: discord.Interaction, custom_key: str, version: app_commands.Choice[str] = None, days: int = 30):
+async def genlib(interaction: discord.Interaction, custom_key: str, version: app_commands.Choice[str] = None, days: int = 30, customer: discord.Member = None):
     if not await verify_access(interaction, check_category=True):
         return
 
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=False)
 
     selected_version = version.value if version else "v1"
 
@@ -436,7 +441,8 @@ async def genlib(interaction: discord.Interaction, custom_key: str, version: app
         key = data.get("key") or custom_key
         embed.add_field(name="Key", value=f"```{key}```", inline=False)
         view = KeyActionView(key=str(key).strip())
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        content_text = f"Hey {customer.mention}, your Lib Bypass key is ready!" if customer else None
+        await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=False)
         
         await send_audit_log(
             interaction.client,
