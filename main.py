@@ -108,7 +108,7 @@ async def verify_access(interaction: discord.Interaction, check_category: bool =
 
     return True
 
-# ================= INTERACTIVE BUTTON VIEWS =================
+# ================= INTERACTIVE VIEWS =================
 
 class KeyActionView(discord.ui.View):
     def __init__(self, key: str):
@@ -223,7 +223,7 @@ class UIDActionView(discord.ui.View):
             err = res.get("message", "Failed to remove UID.")
             await interaction.followup.send(f"❌ Error: {err}", ephemeral=True)
 
-# ================= BOT INITIALIZATION =================
+# ================= BOT INITIALIZATION & CLEAN SYNC =================
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -233,28 +233,37 @@ class ResellerBot(commands.Bot):
 
     async def setup_hook(self):
         target_guild = discord.Object(id=ALLOWED_GUILD_ID)
+        
+        # 1. Global duplicate commands ko clear karna
+        self.tree.clear_commands(guild=None)
+        await self.tree.sync(guild=None)
+        print(">>> Global duplicates cleared successfully.")
+
+        # 2. Sirf Server ID par clean single command push karna
         self.tree.copy_global_to(guild=target_guild)
         synced = await self.tree.sync(guild=target_guild)
-        print(f">>> [SUCCESS] Synced {len(synced)} command(s) exclusively to Guild: {ALLOWED_GUILD_ID}")
+        print(f">>> [SUCCESS] Synced exactly {len(synced)} unique command(s) to Server {ALLOWED_GUILD_ID}")
 
 bot = ResellerBot()
 
 @bot.event
 async def on_ready():
-    print(f">>> Logged in as: {bot.user} (ID: {bot.user.id})")
+    print(f">>> Bot Online: {bot.user} (ID: {bot.user.id})")
 
 @bot.command(name="sync")
 async def manual_sync(ctx):
     if ctx.author.id != PRIMARY_OWNER_ID or ctx.guild.id != ALLOWED_GUILD_ID:
         return
     target_guild = discord.Object(id=ALLOWED_GUILD_ID)
+    bot.tree.clear_commands(guild=None)
+    await bot.tree.sync(guild=None)
     bot.tree.copy_global_to(guild=target_guild)
     synced = await bot.tree.sync(guild=target_guild)
-    await ctx.send(f"✅ System commands synced: `{len(synced)}` commands active on target server.")
+    await ctx.send(f"✅ Duplicates removed. Exactly `{len(synced)}` unique commands synced to this server.")
 
 # ================= SLASH COMMANDS =================
 
-# 1. GENERATE PACKAGE KEY (Publicly visible in ticket)
+# 1. GENERATE PACKAGE KEY
 @bot.tree.command(name="genkey", description="Generate a package license key in ticket")
 @app_commands.describe(
     package="Select the software package",
@@ -269,8 +278,9 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
     if not await verify_access(interaction, check_category=True):
         return
 
-    # Defer publicly taaki ticket ke dusre log bhi response dekh sakein
     await interaction.response.defer(ephemeral=False)
+
+    clean_note = note.strip() if note else ""
 
     params = {
         "action": "generate_key",
@@ -278,7 +288,9 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
         "package_id": package.value,
         "days": days,
         "amount": 1,
-        "note": note
+        "note": clean_note,
+        "key_note": clean_note,
+        "notes": clean_note
     }
     
     data = await request_api(params)
@@ -309,7 +321,6 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
         view = KeyActionView(key=str(extracted_key).strip())
         content_text = f"Hey {customer.mention}, your license key is ready!" if customer else None
         
-        # Public reply (ephemeral=False) taaki samne wale ko bhi dikhe
         await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=False)
         
         await send_audit_log(
@@ -321,7 +332,7 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
                 "Duration": f"{days} Days" if days > 0 else "Lifetime",
                 "Key": f"`{extracted_key}`",
                 "Customer": customer.mention if customer else "None",
-                "Note": note if note else "None"
+                "Note": clean_note if clean_note else "None"
             },
             color=0x2ECC71
         )
