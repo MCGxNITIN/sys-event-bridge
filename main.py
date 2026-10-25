@@ -223,7 +223,7 @@ class UIDActionView(discord.ui.View):
             err = res.get("message", "Failed to remove UID.")
             await interaction.followup.send(f"❌ Error: {err}", ephemeral=True)
 
-# ================= BOT INITIALIZATION & CLEAN SYNC =================
+# ================= BOT INITIALIZATION & SAFE SYNC =================
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -234,15 +234,18 @@ class ResellerBot(commands.Bot):
     async def setup_hook(self):
         target_guild = discord.Object(id=ALLOWED_GUILD_ID)
         
-        # 1. Global duplicate commands ko clear karna
-        self.tree.clear_commands(guild=None)
-        await self.tree.sync(guild=None)
-        print(">>> Global duplicates cleared successfully.")
-
-        # 2. Sirf Server ID par clean single command push karna
+        # 1. Pehle server me saare commands safely copy karke sync karein
         self.tree.copy_global_to(guild=target_guild)
         synced = await self.tree.sync(guild=target_guild)
-        print(f">>> [SUCCESS] Synced exactly {len(synced)} unique command(s) to Server {ALLOWED_GUILD_ID}")
+        print(f">>> [SUCCESS] Synced {len(synced)} command(s) exclusively to Guild: {ALLOWED_GUILD_ID}")
+
+        # 2. Phir global duplicate commands ko completely wipe karein
+        try:
+            self.tree.clear_commands(guild=None)
+            await self.tree.sync(guild=None)
+            print(">>> Global duplicates successfully cleared from Discord.")
+        except Exception as e:
+            print(f">>> Global clear skipped: {e}")
 
 bot = ResellerBot()
 
@@ -255,11 +258,14 @@ async def manual_sync(ctx):
     if ctx.author.id != PRIMARY_OWNER_ID or ctx.guild.id != ALLOWED_GUILD_ID:
         return
     target_guild = discord.Object(id=ALLOWED_GUILD_ID)
-    bot.tree.clear_commands(guild=None)
-    await bot.tree.sync(guild=None)
     bot.tree.copy_global_to(guild=target_guild)
     synced = await bot.tree.sync(guild=target_guild)
-    await ctx.send(f"✅ Duplicates removed. Exactly `{len(synced)}` unique commands synced to this server.")
+    
+    # Global clear
+    bot.tree.clear_commands(guild=None)
+    await bot.tree.sync(guild=None)
+    
+    await ctx.send(f"✅ Server commands synced: `{len(synced)}` unique command(s) active on this server.")
 
 # ================= SLASH COMMANDS =================
 
