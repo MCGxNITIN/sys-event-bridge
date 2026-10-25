@@ -17,8 +17,9 @@ ALLOWED_GUILD_ID = 1525181999147388958
 PRIMARY_OWNER_ID = 1525179499602509977
 AUTHORIZED_USERS = {1525179499602509977, 1209489335590723654}
 
-# Designated Category & Logging Channel
+# Designated Locations
 ALLOWED_CATEGORY_ID = 1525181999646507118
+ALLOWED_DIRECT_CHANNEL_ID = 1546969770924966029
 AUDIT_LOG_CHANNEL_ID = 1547688035796254941
 
 # Packages mapping (Panel Package IDs)
@@ -73,8 +74,8 @@ async def send_audit_log(client: commands.Bot, title: str, user: discord.User, f
     except Exception as e:
         print(f"[Audit Log Error]: {e}")
 
-# ================= PERMISSION & CATEGORY VERIFIER =================
-async def verify_access(interaction: discord.Interaction, check_category: bool = True) -> bool:
+# ================= PERMISSION & LOCATION VERIFIER =================
+async def verify_access(interaction: discord.Interaction, check_location: bool = True) -> bool:
     if interaction.guild_id != ALLOWED_GUILD_ID:
         embed = discord.Embed(
             title="⛔ Access Denied | Server Restricted",
@@ -94,13 +95,16 @@ async def verify_access(interaction: discord.Interaction, check_category: bool =
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return False
 
-    if check_category:
+    if check_location:
         channel = interaction.channel
         category_id = getattr(channel, "category_id", None)
-        if category_id != ALLOWED_CATEGORY_ID:
+        is_ticket_category = (category_id == ALLOWED_CATEGORY_ID)
+        is_direct_channel = (interaction.channel_id == ALLOWED_DIRECT_CHANNEL_ID)
+
+        if not (is_ticket_category or is_direct_channel):
             embed = discord.Embed(
-                title="⚠️ Category Restriction",
-                description="Yeh command sirf designated category ke channels me allow hai.",
+                title="⚠️ Location Restriction",
+                description=f"Yeh command sirf ticket category ke channels ya <#{ALLOWED_DIRECT_CHANNEL_ID}> me chalega.",
                 color=0xFEE75C
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -233,13 +237,10 @@ class ResellerBot(commands.Bot):
 
     async def setup_hook(self):
         target_guild = discord.Object(id=ALLOWED_GUILD_ID)
-        
-        # 1. Pehle server me saare commands safely copy karke sync karein
         self.tree.copy_global_to(guild=target_guild)
         synced = await self.tree.sync(guild=target_guild)
         print(f">>> [SUCCESS] Synced {len(synced)} command(s) exclusively to Guild: {ALLOWED_GUILD_ID}")
 
-        # 2. Phir global duplicate commands ko completely wipe karein
         try:
             self.tree.clear_commands(guild=None)
             await self.tree.sync(guild=None)
@@ -261,7 +262,6 @@ async def manual_sync(ctx):
     bot.tree.copy_global_to(guild=target_guild)
     synced = await bot.tree.sync(guild=target_guild)
     
-    # Global clear
     bot.tree.clear_commands(guild=None)
     await bot.tree.sync(guild=None)
     
@@ -281,7 +281,7 @@ async def manual_sync(ctx):
     app_commands.Choice(name=name, value=pkg_id) for name, pkg_id in PACKAGES.items()
 ])
 async def genkey(interaction: discord.Interaction, package: app_commands.Choice[str], days: int = 1, customer: discord.Member = None, note: str = ""):
-    if not await verify_access(interaction, check_category=True):
+    if not await verify_access(interaction, check_location=True):
         return
 
     await interaction.response.defer(ephemeral=False)
@@ -325,7 +325,10 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
         embed.add_field(name="Keys", value=f"```{extracted_key}```", inline=False)
         
         view = KeyActionView(key=str(extracted_key).strip())
-        content_text = f"Hey {customer.mention}, your license key is ready!" if customer else None
+        
+        # Channel 1546969770924966029 me customer mention nahi hoga, sirf ticket category me hoga
+        is_direct_channel = (interaction.channel_id == ALLOWED_DIRECT_CHANNEL_ID)
+        content_text = f"Hey {customer.mention}, your license key is ready!" if (customer and not is_direct_channel) else None
         
         await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=False)
         
@@ -337,7 +340,8 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
                 "Package": package.name,
                 "Duration": f"{days} Days" if days > 0 else "Lifetime",
                 "Key": f"`{extracted_key}`",
-                "Customer": customer.mention if customer else "None",
+                "Customer": customer.mention if (customer and not is_direct_channel) else "None",
+                "Channel": f"<#{interaction.channel_id}>",
                 "Note": clean_note if clean_note else "None"
             },
             color=0x2ECC71
@@ -356,7 +360,7 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
     customer="Customer to mention in ticket (Optional)"
 )
 async def whitelist(interaction: discord.Interaction, uid: str, region: str = "IND", days: int = 30, customer: discord.Member = None):
-    if not await verify_access(interaction, check_category=True):
+    if not await verify_access(interaction, check_location=True):
         return
 
     await interaction.response.defer(ephemeral=False)
@@ -379,7 +383,10 @@ async def whitelist(interaction: discord.Interaction, uid: str, region: str = "I
     embed.add_field(name="Result", value=data.get("message", "Processed successfully"), inline=False)
 
     view = UIDActionView(uid=uid.strip()) if data.get("success") else None
-    content_text = f"Hey {customer.mention}, your UID has been whitelisted!" if customer else None
+    
+    is_direct_channel = (interaction.channel_id == ALLOWED_DIRECT_CHANNEL_ID)
+    content_text = f"Hey {customer.mention}, your UID has been whitelisted!" if (customer and not is_direct_channel) else None
+    
     await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=False)
 
     await send_audit_log(
@@ -390,7 +397,8 @@ async def whitelist(interaction: discord.Interaction, uid: str, region: str = "I
             "UID": f"`{uid}`",
             "Region": region.upper(),
             "Duration": f"{days} Days" if days > 0 else "Lifetime",
-            "Status": "Success" if data.get("success") else "Failed"
+            "Status": "Success" if data.get("success") else "Failed",
+            "Channel": f"<#{interaction.channel_id}>"
         },
         color=0x3498DB if data.get("success") else 0xE74C3C
     )
@@ -399,7 +407,7 @@ async def whitelist(interaction: discord.Interaction, uid: str, region: str = "I
 @bot.tree.command(name="removeuid", description="Remove/Delete a Free Fire UID from whitelist")
 @app_commands.describe(uid="Player numeric Free Fire UID to remove")
 async def removeuid(interaction: discord.Interaction, uid: str):
-    if not await verify_access(interaction, check_category=True):
+    if not await verify_access(interaction, check_location=True):
         return
 
     await interaction.response.defer(ephemeral=True)
@@ -417,7 +425,7 @@ async def removeuid(interaction: discord.Interaction, uid: str):
         interaction.client,
         title="UID Removed Manually",
         user=interaction.user,
-        fields={"UID": f"`{uid}`", "Result": data.get("message", "Executed")},
+        fields={"UID": f"`{uid}`", "Result": data.get("message", "Executed"), "Channel": f"<#{interaction.channel_id}>"},
         color=0xE74C3C
     )
 
@@ -434,7 +442,7 @@ async def removeuid(interaction: discord.Interaction, uid: str):
     app_commands.Choice(name="Version 2 (V2)", value="v2")
 ])
 async def genlib(interaction: discord.Interaction, custom_key: str, version: app_commands.Choice[str] = None, days: int = 30, customer: discord.Member = None):
-    if not await verify_access(interaction, check_category=True):
+    if not await verify_access(interaction, check_location=True):
         return
 
     await interaction.response.defer(ephemeral=False)
@@ -458,7 +466,10 @@ async def genlib(interaction: discord.Interaction, custom_key: str, version: app
         key = data.get("key") or custom_key
         embed.add_field(name="Key", value=f"```{key}```", inline=False)
         view = KeyActionView(key=str(key).strip())
-        content_text = f"Hey {customer.mention}, your Lib Bypass key is ready!" if customer else None
+        
+        is_direct_channel = (interaction.channel_id == ALLOWED_DIRECT_CHANNEL_ID)
+        content_text = f"Hey {customer.mention}, your Lib Bypass key is ready!" if (customer and not is_direct_channel) else None
+        
         await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=False)
         
         await send_audit_log(
@@ -469,7 +480,8 @@ async def genlib(interaction: discord.Interaction, custom_key: str, version: app
                 "Engine": selected_version.upper(),
                 "Target User": custom_key,
                 "Duration": f"{days} Days" if days > 0 else "Lifetime",
-                "Key": f"`{key}`"
+                "Key": f"`{key}`",
+                "Channel": f"<#{interaction.channel_id}>"
             },
             color=0x9B59B6
         )
@@ -481,7 +493,7 @@ async def genlib(interaction: discord.Interaction, custom_key: str, version: app
 @bot.tree.command(name="resethwid", description="Reset HWID lock for a key")
 @app_commands.describe(key="License key to reset")
 async def resethwid(interaction: discord.Interaction, key: str):
-    if not await verify_access(interaction, check_category=False):
+    if not await verify_access(interaction, check_location=False):
         return
 
     await interaction.response.defer(ephemeral=True)
@@ -499,7 +511,7 @@ async def resethwid(interaction: discord.Interaction, key: str):
         interaction.client,
         title="Direct HWID Reset",
         user=interaction.user,
-        fields={"Key": f"`{key}`", "Result": data.get("message", "Executed")},
+        fields={"Key": f"`{key}`", "Result": data.get("message", "Executed"), "Channel": f"<#{interaction.channel_id}>"},
         color=0x3498DB
     )
 
