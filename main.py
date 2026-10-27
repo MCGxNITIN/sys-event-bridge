@@ -112,7 +112,7 @@ async def verify_access(interaction: discord.Interaction, check_location: bool =
 
     return True
 
-# ================= INTERACTIVE VIEWS =================
+# ================= INTERACTIVE BUTTON VIEWS =================
 
 class KeyActionView(discord.ui.View):
     def __init__(self, key: str):
@@ -244,7 +244,7 @@ class ResellerBot(commands.Bot):
         try:
             self.tree.clear_commands(guild=None)
             await self.tree.sync(guild=None)
-            print(">>> Global duplicates successfully cleared from Discord.")
+            print(">>> Global duplicates cleared successfully.")
         except Exception as e:
             print(f">>> Global clear skipped: {e}")
 
@@ -325,8 +325,6 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
         embed.add_field(name="Keys", value=f"```{extracted_key}```", inline=False)
         
         view = KeyActionView(key=str(extracted_key).strip())
-        
-        # Channel 1546969770924966029 me customer mention nahi hoga, sirf ticket category me hoga
         is_direct_channel = (interaction.channel_id == ALLOWED_DIRECT_CHANNEL_ID)
         content_text = f"Hey {customer.mention}, your license key is ready!" if (customer and not is_direct_channel) else None
         
@@ -383,7 +381,6 @@ async def whitelist(interaction: discord.Interaction, uid: str, region: str = "I
     embed.add_field(name="Result", value=data.get("message", "Processed successfully"), inline=False)
 
     view = UIDActionView(uid=uid.strip()) if data.get("success") else None
-    
     is_direct_channel = (interaction.channel_id == ALLOWED_DIRECT_CHANNEL_ID)
     content_text = f"Hey {customer.mention}, your UID has been whitelisted!" if (customer and not is_direct_channel) else None
     
@@ -407,7 +404,7 @@ async def whitelist(interaction: discord.Interaction, uid: str, region: str = "I
 @bot.tree.command(name="removeuid", description="Remove/Delete a Free Fire UID from whitelist")
 @app_commands.describe(uid="Player numeric Free Fire UID to remove")
 async def removeuid(interaction: discord.Interaction, uid: str):
-    if not await verify_access(interaction, check_location=True):
+    if not await verify_access(interaction, check_location=False):
         return
 
     await interaction.response.defer(ephemeral=True)
@@ -490,7 +487,7 @@ async def genlib(interaction: discord.Interaction, custom_key: str, version: app
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 # 5. RESET HWID DIRECT COMMAND
-@bot.tree.command(name="resethwid", description="Reset HWID lock for a key")
+@bot.tree.command(name="resethwid", description="Reset HWID lock for a license key")
 @app_commands.describe(key="License key to reset")
 async def resethwid(interaction: discord.Interaction, key: str):
     if not await verify_access(interaction, check_location=False):
@@ -514,6 +511,115 @@ async def resethwid(interaction: discord.Interaction, key: str):
         fields={"Key": f"`{key}`", "Result": data.get("message", "Executed"), "Channel": f"<#{interaction.channel_id}>"},
         color=0x3498DB
     )
+
+# 6. BAN KEY DIRECT COMMAND
+@bot.tree.command(name="bankey", description="Ban a license key")
+@app_commands.describe(key="License key to ban")
+async def bankey(interaction: discord.Interaction, key: str):
+    if not await verify_access(interaction, check_location=False):
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    params = {"action": "ban_key", "key": key.strip()}
+    data = await request_api(params)
+
+    embed = discord.Embed(title="Key Ban Status", color=0xE74C3C if data.get("success") else 0x95A5A6)
+    embed.add_field(name="Key", value=f"`{key.strip()}`", inline=False)
+    embed.add_field(name="Result", value=data.get("message", "Action completed"), inline=False)
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+    await send_audit_log(
+        interaction.client,
+        title="Direct Key Ban",
+        user=interaction.user,
+        fields={"Key": f"`{key}`", "Result": data.get("message", "Executed"), "Channel": f"<#{interaction.channel_id}>"},
+        color=0xE74C3C
+    )
+
+# 7. UNBAN KEY DIRECT COMMAND
+@bot.tree.command(name="unbankey", description="Unban a previously banned license key")
+@app_commands.describe(key="License key to unban")
+async def unbankey(interaction: discord.Interaction, key: str):
+    if not await verify_access(interaction, check_location=False):
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    params = {"action": "unban_key", "key": key.strip()}
+    data = await request_api(params)
+
+    embed = discord.Embed(title="Key Unban Status", color=0x2ECC71 if data.get("success") else 0xE74C3C)
+    embed.add_field(name="Key", value=f"`{key.strip()}`", inline=False)
+    embed.add_field(name="Result", value=data.get("message", "Action completed"), inline=False)
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+    await send_audit_log(
+        interaction.client,
+        title="Direct Key Unban",
+        user=interaction.user,
+        fields={"Key": f"`{key}`", "Result": data.get("message", "Executed"), "Channel": f"<#{interaction.channel_id}>"},
+        color=0x2ECC71
+    )
+
+# 8. DELETE KEY DIRECT COMMAND
+@bot.tree.command(name="delkey", description="Permanently delete a license key from database")
+@app_commands.describe(key="License key to delete")
+async def delkey(interaction: discord.Interaction, key: str):
+    if not await verify_access(interaction, check_location=False):
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    params = {"action": "delete_key", "key": key.strip()}
+    data = await request_api(params)
+
+    embed = discord.Embed(title="Key Deletion Status", color=0x95A5A6 if data.get("success") else 0xE74C3C)
+    embed.add_field(name="Key", value=f"`{key.strip()}`", inline=False)
+    embed.add_field(name="Result", value=data.get("message", "Action completed"), inline=False)
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+    await send_audit_log(
+        interaction.client,
+        title="Direct Key Delete",
+        user=interaction.user,
+        fields={"Key": f"`{key}`", "Result": data.get("message", "Executed"), "Channel": f"<#{interaction.channel_id}>"},
+        color=0x95A5A6
+    )
+
+# 9. KEY INFO / EXPIRY LOOKUP
+@bot.tree.command(name="keyinfo", description="Fetch status, HWID, and expiry details of a license key")
+@app_commands.describe(key="License key to check")
+async def keyinfo(interaction: discord.Interaction, key: str):
+    if not await verify_access(interaction, check_location=False):
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    params = {"action": "key_info", "key": key.strip()}
+    data = await request_api(params)
+
+    if data.get("success") or data.get("status"):
+        info_data = data.get("data") if isinstance(data.get("data"), dict) else data
+        
+        embed = discord.Embed(title="📋 License Key Details", color=0x3498DB)
+        embed.add_field(name="License Key", value=f"`{key.strip()}`", inline=False)
+        embed.add_field(name="Status", value=str(info_data.get("status", "Active")).capitalize(), inline=True)
+        embed.add_field(name="Package", value=str(info_data.get("package", "Unknown")), inline=True)
+        embed.add_field(name="Expiry / Duration", value=str(info_data.get("expiry", info_data.get("expires", "N/A"))), inline=True)
+        embed.add_field(name="HWID Lock", value=str(info_data.get("hwid", "Unused / No Lock")), inline=False)
+        if info_data.get("note"):
+            embed.add_field(name="Note", value=str(info_data.get("note")), inline=False)
+            
+        view = KeyActionView(key=key.strip())
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    else:
+        err = data.get("message", "Could not fetch details for this key.")
+        embed = discord.Embed(title="❌ Key Not Found", description=err, color=0xE74C3C)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 # ================= RUN SERVER & BOT =================
 keep_alive()
