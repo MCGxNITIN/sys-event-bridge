@@ -75,6 +75,10 @@ async def send_audit_log(client: commands.Bot, title: str, user: discord.User, f
         print(f"[Audit Log Error]: {e}")
 
 # ================= PERMISSION & LOCATION VERIFIER =================
+def is_in_ticket(interaction: discord.Interaction) -> bool:
+    category_id = getattr(interaction.channel, "category_id", None)
+    return category_id == ALLOWED_CATEGORY_ID
+
 async def verify_access(interaction: discord.Interaction, check_location: bool = True) -> bool:
     if interaction.guild_id != ALLOWED_GUILD_ID:
         embed = discord.Embed(
@@ -96,12 +100,10 @@ async def verify_access(interaction: discord.Interaction, check_location: bool =
         return False
 
     if check_location:
-        channel = interaction.channel
-        category_id = getattr(channel, "category_id", None)
-        is_ticket_category = (category_id == ALLOWED_CATEGORY_ID)
-        is_direct_channel = (interaction.channel_id == ALLOWED_DIRECT_CHANNEL_ID)
+        is_ticket = is_in_ticket(interaction)
+        is_direct = (interaction.channel_id == ALLOWED_DIRECT_CHANNEL_ID)
 
-        if not (is_ticket_category or is_direct_channel):
+        if not (is_ticket or is_direct):
             embed = discord.Embed(
                 title="⚠️ Location Restriction",
                 description=f"Yeh command sirf ticket category ke channels ya <#{ALLOWED_DIRECT_CHANNEL_ID}> me chalega.",
@@ -132,7 +134,8 @@ class KeyActionView(discord.ui.View):
 
     @discord.ui.button(label="Reset HWID", style=discord.ButtonStyle.primary, custom_id="btn_reset_hwid")
     async def reset_hwid_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        is_ticket = is_in_ticket(interaction)
+        await interaction.response.defer(ephemeral=not is_ticket)
         res = await request_api({"action": "reset_hwid", "key": self.key})
         status_text = res.get("message", "HWID reset successfully.") if res.get("success") else res.get("message", "Failed to reset HWID.")
         
@@ -140,14 +143,20 @@ class KeyActionView(discord.ui.View):
             interaction.client,
             title="HWID Reset Action",
             user=interaction.user,
-            fields={"Key": f"`{self.key}`", "Status": "Success" if res.get("success") else "Failed", "Detail": status_text},
+            fields={"Key": f"`{self.key}`", "Status": "Success" if res.get("success") else "Failed", "Detail": status_text, "Channel": f"<#{interaction.channel_id}>"},
             color=0x3498DB if res.get("success") else 0xE74C3C
         )
-        await interaction.followup.send(f"**[{self.key}]** {status_text}", ephemeral=True)
+        embed = discord.Embed(
+            title="🔄 HWID Reset Notification",
+            description=f"**Key:** `{self.key}`\n**Status:** {status_text}",
+            color=0x3498DB if res.get("success") else 0xE74C3C
+        )
+        await interaction.followup.send(embed=embed, ephemeral=not is_ticket)
 
     @discord.ui.button(label="Ban", style=discord.ButtonStyle.danger, custom_id="btn_ban_key")
     async def ban_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        is_ticket = is_in_ticket(interaction)
+        await interaction.response.defer(ephemeral=not is_ticket)
         res = await request_api({"action": "ban_key", "key": self.key})
         status_text = res.get("message", "Key has been banned.") if res.get("success") else res.get("message", "Failed to ban key.")
         
@@ -155,14 +164,20 @@ class KeyActionView(discord.ui.View):
             interaction.client,
             title="License Key Banned",
             user=interaction.user,
-            fields={"Key": f"`{self.key}`", "Status": "Banned", "Detail": status_text},
+            fields={"Key": f"`{self.key}`", "Status": "Banned", "Detail": status_text, "Channel": f"<#{interaction.channel_id}>"},
             color=0xE74C3C
         )
-        await interaction.followup.send(f"**[{self.key}]** {status_text}", ephemeral=True)
+        embed = discord.Embed(
+            title="🚫 Key Banned Notification",
+            description=f"**Key:** `{self.key}`\n**Status:** {status_text}",
+            color=0xE74C3C
+        )
+        await interaction.followup.send(embed=embed, ephemeral=not is_ticket)
 
     @discord.ui.button(label="Unban", style=discord.ButtonStyle.success, custom_id="btn_unban_key")
     async def unban_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        is_ticket = is_in_ticket(interaction)
+        await interaction.response.defer(ephemeral=not is_ticket)
         res = await request_api({"action": "unban_key", "key": self.key})
         status_text = res.get("message", "Key has been unbanned.") if res.get("success") else res.get("message", "Failed to unban key.")
         
@@ -170,14 +185,20 @@ class KeyActionView(discord.ui.View):
             interaction.client,
             title="License Key Unbanned",
             user=interaction.user,
-            fields={"Key": f"`{self.key}`", "Status": "Unbanned", "Detail": status_text},
+            fields={"Key": f"`{self.key}`", "Status": "Unbanned", "Detail": status_text, "Channel": f"<#{interaction.channel_id}>"},
             color=0x2ECC71
         )
-        await interaction.followup.send(f"**[{self.key}]** {status_text}", ephemeral=True)
+        embed = discord.Embed(
+            title="✅ Key Unbanned Notification",
+            description=f"**Key:** `{self.key}`\n**Status:** {status_text}",
+            color=0x2ECC71
+        )
+        await interaction.followup.send(embed=embed, ephemeral=not is_ticket)
 
     @discord.ui.button(label="Delete", style=discord.ButtonStyle.secondary, custom_id="btn_delete_key")
     async def delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        is_ticket = is_in_ticket(interaction)
+        await interaction.response.defer(ephemeral=not is_ticket)
         res = await request_api({"action": "delete_key", "key": self.key})
         status_text = res.get("message", "Key has been deleted.") if res.get("success") else res.get("message", "Failed to delete key.")
         
@@ -185,10 +206,15 @@ class KeyActionView(discord.ui.View):
             interaction.client,
             title="License Key Deleted",
             user=interaction.user,
-            fields={"Key": f"`{self.key}`", "Status": "Deleted", "Detail": status_text},
+            fields={"Key": f"`{self.key}`", "Status": "Deleted", "Detail": status_text, "Channel": f"<#{interaction.channel_id}>"},
             color=0x95A5A6
         )
-        await interaction.followup.send(f"**[{self.key}]** {status_text}", ephemeral=True)
+        embed = discord.Embed(
+            title="🗑️ Key Deleted Notification",
+            description=f"**Key:** `{self.key}`\n**Status:** {status_text}",
+            color=0x95A5A6
+        )
+        await interaction.followup.send(embed=embed, ephemeral=not is_ticket)
 
 
 class UIDActionView(discord.ui.View):
@@ -209,7 +235,8 @@ class UIDActionView(discord.ui.View):
 
     @discord.ui.button(label="🗑️ Remove / Delete UID", style=discord.ButtonStyle.danger, custom_id="btn_delete_uid")
     async def delete_uid_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        is_ticket = is_in_ticket(interaction)
+        await interaction.response.defer(ephemeral=not is_ticket)
         res = await request_api({"action": "remove_uid", "uid": self.uid})
         
         if res.get("success"):
@@ -217,10 +244,15 @@ class UIDActionView(discord.ui.View):
                 interaction.client,
                 title="UID Removed",
                 user=interaction.user,
-                fields={"UID": f"`{self.uid}`", "Status": "Removed via Button"},
+                fields={"UID": f"`{self.uid}`", "Status": "Removed via Button", "Channel": f"<#{interaction.channel_id}>"},
                 color=0xE74C3C
             )
-            await interaction.followup.send(f"✅ Player UID `{self.uid}` has been removed.", ephemeral=True)
+            embed = discord.Embed(
+                title="🗑️ UID Removed",
+                description=f"Player UID `{self.uid}` has been removed from whitelist.",
+                color=0xE74C3C
+            )
+            await interaction.followup.send(embed=embed, ephemeral=not is_ticket)
             self.delete_uid_btn.disabled = True
             await interaction.edit_original_response(view=self)
         else:
@@ -270,7 +302,7 @@ async def manual_sync(ctx):
 # ================= SLASH COMMANDS =================
 
 # 1. GENERATE PACKAGE KEY
-@bot.tree.command(name="genkey", description="Generate a package license key in ticket")
+@bot.tree.command(name="genkey", description="Generate a package license key")
 @app_commands.describe(
     package="Select the software package",
     days="Duration in days (Default: 1, 0 for Lifetime)",
@@ -284,7 +316,8 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
     if not await verify_access(interaction, check_location=True):
         return
 
-    await interaction.response.defer(ephemeral=False)
+    is_ticket = is_in_ticket(interaction)
+    await interaction.response.defer(ephemeral=not is_ticket)
 
     clean_note = note.strip() if note else ""
 
@@ -325,10 +358,9 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
         embed.add_field(name="Keys", value=f"```{extracted_key}```", inline=False)
         
         view = KeyActionView(key=str(extracted_key).strip())
-        is_direct_channel = (interaction.channel_id == ALLOWED_DIRECT_CHANNEL_ID)
-        content_text = f"Hey {customer.mention}, your license key is ready!" if (customer and not is_direct_channel) else None
+        content_text = f"Hey {customer.mention}, your license key is ready!" if (customer and is_ticket) else None
         
-        await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=False)
+        await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=not is_ticket)
         
         await send_audit_log(
             interaction.client,
@@ -338,7 +370,7 @@ async def genkey(interaction: discord.Interaction, package: app_commands.Choice[
                 "Package": package.name,
                 "Duration": f"{days} Days" if days > 0 else "Lifetime",
                 "Key": f"`{extracted_key}`",
-                "Customer": customer.mention if (customer and not is_direct_channel) else "None",
+                "Customer": customer.mention if (customer and is_ticket) else "None",
                 "Channel": f"<#{interaction.channel_id}>",
                 "Note": clean_note if clean_note else "None"
             },
@@ -361,7 +393,8 @@ async def whitelist(interaction: discord.Interaction, uid: str, region: str = "I
     if not await verify_access(interaction, check_location=True):
         return
 
-    await interaction.response.defer(ephemeral=False)
+    is_ticket = is_in_ticket(interaction)
+    await interaction.response.defer(ephemeral=not is_ticket)
 
     params = {
         "action": "whitelist_uid",
@@ -381,10 +414,9 @@ async def whitelist(interaction: discord.Interaction, uid: str, region: str = "I
     embed.add_field(name="Result", value=data.get("message", "Processed successfully"), inline=False)
 
     view = UIDActionView(uid=uid.strip()) if data.get("success") else None
-    is_direct_channel = (interaction.channel_id == ALLOWED_DIRECT_CHANNEL_ID)
-    content_text = f"Hey {customer.mention}, your UID has been whitelisted!" if (customer and not is_direct_channel) else None
+    content_text = f"Hey {customer.mention}, your UID has been whitelisted!" if (customer and is_ticket) else None
     
-    await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=False)
+    await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=not is_ticket)
 
     await send_audit_log(
         interaction.client,
@@ -407,7 +439,8 @@ async def removeuid(interaction: discord.Interaction, uid: str):
     if not await verify_access(interaction, check_location=False):
         return
 
-    await interaction.response.defer(ephemeral=True)
+    is_ticket = is_in_ticket(interaction)
+    await interaction.response.defer(ephemeral=not is_ticket)
 
     params = {"action": "remove_uid", "uid": uid.strip()}
     data = await request_api(params)
@@ -416,7 +449,7 @@ async def removeuid(interaction: discord.Interaction, uid: str):
     embed.add_field(name="UID", value=uid.strip(), inline=True)
     embed.add_field(name="Result", value=data.get("message", "Action processed"), inline=False)
 
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=embed, ephemeral=not is_ticket)
 
     await send_audit_log(
         interaction.client,
@@ -442,7 +475,8 @@ async def genlib(interaction: discord.Interaction, custom_key: str, version: app
     if not await verify_access(interaction, check_location=True):
         return
 
-    await interaction.response.defer(ephemeral=False)
+    is_ticket = is_in_ticket(interaction)
+    await interaction.response.defer(ephemeral=not is_ticket)
 
     selected_version = version.value if version else "v1"
 
@@ -463,11 +497,9 @@ async def genlib(interaction: discord.Interaction, custom_key: str, version: app
         key = data.get("key") or custom_key
         embed.add_field(name="Key", value=f"```{key}```", inline=False)
         view = KeyActionView(key=str(key).strip())
+        content_text = f"Hey {customer.mention}, your Lib Bypass key is ready!" if (customer and is_ticket) else None
         
-        is_direct_channel = (interaction.channel_id == ALLOWED_DIRECT_CHANNEL_ID)
-        content_text = f"Hey {customer.mention}, your Lib Bypass key is ready!" if (customer and not is_direct_channel) else None
-        
-        await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=False)
+        await interaction.followup.send(content=content_text, embed=embed, view=view, ephemeral=not is_ticket)
         
         await send_audit_log(
             interaction.client,
@@ -493,7 +525,8 @@ async def resethwid(interaction: discord.Interaction, key: str):
     if not await verify_access(interaction, check_location=False):
         return
 
-    await interaction.response.defer(ephemeral=True)
+    is_ticket = is_in_ticket(interaction)
+    await interaction.response.defer(ephemeral=not is_ticket)
 
     params = {"action": "reset_hwid", "key": key.strip()}
     data = await request_api(params)
@@ -502,7 +535,7 @@ async def resethwid(interaction: discord.Interaction, key: str):
     embed.add_field(name="Key", value=f"`{key.strip()}`", inline=False)
     embed.add_field(name="Result", value=data.get("message", "Action completed"), inline=False)
 
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=embed, ephemeral=not is_ticket)
 
     await send_audit_log(
         interaction.client,
@@ -519,7 +552,8 @@ async def bankey(interaction: discord.Interaction, key: str):
     if not await verify_access(interaction, check_location=False):
         return
 
-    await interaction.response.defer(ephemeral=True)
+    is_ticket = is_in_ticket(interaction)
+    await interaction.response.defer(ephemeral=not is_ticket)
 
     params = {"action": "ban_key", "key": key.strip()}
     data = await request_api(params)
@@ -528,7 +562,7 @@ async def bankey(interaction: discord.Interaction, key: str):
     embed.add_field(name="Key", value=f"`{key.strip()}`", inline=False)
     embed.add_field(name="Result", value=data.get("message", "Action completed"), inline=False)
 
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=embed, ephemeral=not is_ticket)
 
     await send_audit_log(
         interaction.client,
@@ -545,7 +579,8 @@ async def unbankey(interaction: discord.Interaction, key: str):
     if not await verify_access(interaction, check_location=False):
         return
 
-    await interaction.response.defer(ephemeral=True)
+    is_ticket = is_in_ticket(interaction)
+    await interaction.response.defer(ephemeral=not is_ticket)
 
     params = {"action": "unban_key", "key": key.strip()}
     data = await request_api(params)
@@ -554,7 +589,7 @@ async def unbankey(interaction: discord.Interaction, key: str):
     embed.add_field(name="Key", value=f"`{key.strip()}`", inline=False)
     embed.add_field(name="Result", value=data.get("message", "Action completed"), inline=False)
 
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=embed, ephemeral=not is_ticket)
 
     await send_audit_log(
         interaction.client,
@@ -571,7 +606,8 @@ async def delkey(interaction: discord.Interaction, key: str):
     if not await verify_access(interaction, check_location=False):
         return
 
-    await interaction.response.defer(ephemeral=True)
+    is_ticket = is_in_ticket(interaction)
+    await interaction.response.defer(ephemeral=not is_ticket)
 
     params = {"action": "delete_key", "key": key.strip()}
     data = await request_api(params)
@@ -580,7 +616,7 @@ async def delkey(interaction: discord.Interaction, key: str):
     embed.add_field(name="Key", value=f"`{key.strip()}`", inline=False)
     embed.add_field(name="Result", value=data.get("message", "Action completed"), inline=False)
 
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=embed, ephemeral=not is_ticket)
 
     await send_audit_log(
         interaction.client,
@@ -597,7 +633,8 @@ async def keyinfo(interaction: discord.Interaction, key: str):
     if not await verify_access(interaction, check_location=False):
         return
 
-    await interaction.response.defer(ephemeral=True)
+    is_ticket = is_in_ticket(interaction)
+    await interaction.response.defer(ephemeral=not is_ticket)
 
     params = {"action": "key_info", "key": key.strip()}
     data = await request_api(params)
@@ -615,7 +652,7 @@ async def keyinfo(interaction: discord.Interaction, key: str):
             embed.add_field(name="Note", value=str(info_data.get("note")), inline=False)
             
         view = KeyActionView(key=key.strip())
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=not is_ticket)
     else:
         err = data.get("message", "Could not fetch details for this key.")
         embed = discord.Embed(title="❌ Key Not Found", description=err, color=0xE74C3C)
